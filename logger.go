@@ -11,8 +11,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-
-	"./rotator"
 )
 
 /*
@@ -26,7 +24,7 @@ type Logger struct {
 	logFileNameStr string
 	logger         *log.Logger
 	logLevel       int
-	rotator        *rotator.Rotator
+	rotator        *Rotator
 }
 
 /*
