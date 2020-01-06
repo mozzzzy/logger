@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github/mozzzzy/logger/rotator"
+	"github.com/mozzzzy/logger/rotator"
 )
 
 /*
