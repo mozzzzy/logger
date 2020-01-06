@@ -1,4 +1,4 @@
-package logger
+package rotator
 
 /*
  * Module Dependencies
