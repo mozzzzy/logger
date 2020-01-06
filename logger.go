@@ -7,13 +7,12 @@ package logger
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
-	"sort"
 	"strings"
 	"sync"
-	"time"
+
+	"./rotator"
 )
 
 /*
@@ -21,18 +20,25 @@ import (
  */
 
 type Logger struct {
-	logFileNameStr   string
-	logDirPathStr    string
-	fileWriter       *os.File
-	logFileMutex     *sync.Mutex
-	logger           *log.Logger
-	maxLogFileBytes  int64
-	maxOldLogFileNum int
+	fileWriter     *os.File
+	logDirPathStr  string
+	logFileMutex   *sync.Mutex
+	logFileNameStr string
+	logger         *log.Logger
+	logLevel       int
+	rotator        *rotator.Rotator
 }
 
 /*
  * Constants and Package Scope Variables
  */
+
+const FATAL int = 0
+const ERROR int = 1
+const WARN int = 2
+const NOTICE int = 3
+const INFO int = 4
+const DEBUG int = 5
 
 var logFileMutex sync.Mutex
 
@@ -54,7 +60,6 @@ func getFileWriter(logFilePath string) (*os.File, error) {
 		err := errors.New("Failed to create file writer. Length of logFilePath is 0.")
 		return nil, err
 	}
-
 	// Get file writer
 	logfile, logFileOpenErr :=
 		os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
@@ -62,25 +67,10 @@ func getFileWriter(logFilePath string) (*os.File, error) {
 	return logfile, logFileOpenErr
 }
 
-func getFileBytes(logFilePath string) (int64, error) {
-	fileStat, err := os.Stat(logFilePath)
-	if err != nil {
-		return -1, err
-	}
-
-	return fileStat.Size(), nil
-}
-
-func unset(s []string, i int) []string {
-	if i >= len(s) {
-		return s
-	}
-	return append(s[:i], s[i+1:]...)
-}
-
 func New(
 	logDirPath string,
 	logFileName string,
+	logLevel int,
 	maxLogFileBytes int64,
 	maxOldLogFileNum int,
 ) (*Logger, error) {
@@ -89,6 +79,9 @@ func New(
 	// Set file path
 	logger.logFileNameStr = logFileName
 	logger.logDirPathStr = logDirPath
+
+	// Set log level
+	logger.logLevel = logLevel
 
 	// Set mutex
 	logger.logFileMutex = &logFileMutex
@@ -105,11 +98,8 @@ func New(
 	innerLogger := log.New(fileWriter, "", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
 	logger.logger = innerLogger
 
-	// Set max log file size
-	logger.maxLogFileBytes = maxLogFileBytes
-
-	// Set max old log file num
-	logger.maxOldLogFileNum = maxOldLogFileNum
+	// Create rotator
+	logger.rotator = rotator.New(logDirPath, logFileName, maxLogFileBytes, maxOldLogFileNum)
 
 	return logger, nil
 }
@@ -120,63 +110,24 @@ func (logger *Logger) Close() error {
 	return logger.fileWriter.Close()
 }
 
-func (logger *Logger) getLogFiles() ([]string, error) {
-	var logFiles []string
-	files, readDirErr := ioutil.ReadDir(logger.logDirPathStr)
-	if readDirErr != nil {
-		return nil, readDirErr
-	}
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
-		if strings.HasPrefix(file.Name(), logger.logFileNameStr) {
-			logFiles = append(logFiles, file.Name())
-		}
-	}
-	return logFiles, nil
-}
+func (logger *Logger) Log(message string) error {
+	// Write log
+	logger.logFileMutex.Lock()
+	logger.logger.Println(message)
+	logger.logFileMutex.Unlock()
 
-func (logger *Logger) removeOldFile() error {
-	logFiles, getLogFilesErr := logger.getLogFiles()
-	if getLogFilesErr != nil {
-		return getLogFilesErr
+	isRotatable, isRotatableErr := logger.rotator.IsRotatable()
+	if isRotatableErr != nil {
+		return isRotatableErr
 	}
-	sort.Strings(logFiles)
-	for len(logFiles) > 1 && len(logFiles) > logger.maxOldLogFileNum {
-		os.Remove(getFilePath(logger.logDirPathStr, logFiles[1]))
-		logFiles = unset(logFiles, 1)
-	}
-
-	return nil
-}
-
-func (logger *Logger) lotate() error {
-	// Get log file size
-	logFileBytes, getFileBytesErr :=
-		getFileBytes(getFilePath(logger.logDirPathStr, logger.logFileNameStr))
-	if getFileBytesErr != nil {
-		return getFileBytesErr
-	}
-
-	// If file size is bigger than max size
-	if logFileBytes >= logger.maxLogFileBytes {
-		// Close file writer
+	if isRotatable {
+		// Close fileWriter
 		logger.Close()
-
-		// Rename file
-		oldFilePath :=
-			fmt.Sprintf(
-				"%v-%v",
-				getFilePath(logger.logDirPathStr, logger.logFileNameStr),
-				time.Now().Unix(),
-			)
-		renameErr := os.Rename(
-			getFilePath(logger.logDirPathStr, logger.logFileNameStr), oldFilePath)
-		if renameErr != nil {
-			return renameErr
-		}
-
+		// Rotate log file
+		logger.logFileMutex.Lock()
+		logger.rotator.Rotate()
+		logger.rotator.RemoveOldFile()
+		logger.logFileMutex.Unlock()
 		// Reopen file writer
 		fileWriter, getFileWriterErr :=
 			getFileWriter(getFilePath(logger.logDirPathStr, logger.logFileNameStr))
@@ -184,7 +135,6 @@ func (logger *Logger) lotate() error {
 			return getFileWriterErr
 		}
 		logger.fileWriter = fileWriter
-
 		// Recreate logger
 		innerLogger := log.New(fileWriter, "", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
 		logger.logger = innerLogger
@@ -192,11 +142,44 @@ func (logger *Logger) lotate() error {
 	return nil
 }
 
-func (logger *Logger) Log(message string) {
-	logger.logFileMutex.Lock()
-	logger.logger.Println(message)
-	logger.logFileMutex.Unlock()
+func (logger *Logger) Fatal(message string) error {
+	if logger.logLevel >= FATAL {
+		return logger.Log(fmt.Sprintf("[FATAL] %s", message))
+	}
+	return nil
+}
 
-	logger.lotate()
-	logger.removeOldFile()
+func (logger *Logger) Error(message string) error {
+	if logger.logLevel >= ERROR {
+		return logger.Log(fmt.Sprintf("[ERROR] %s", message))
+	}
+	return nil
+}
+
+func (logger *Logger) Warn(message string) error {
+	if logger.logLevel >= WARN {
+		return logger.Log(fmt.Sprintf("[WARN] %s", message))
+	}
+	return nil
+}
+
+func (logger *Logger) Notice(message string) error {
+	if logger.logLevel >= NOTICE {
+		return logger.Log(fmt.Sprintf("[NOTICE] %s", message))
+	}
+	return nil
+}
+
+func (logger *Logger) Info(message string) error {
+	if logger.logLevel >= INFO {
+		return logger.Log(fmt.Sprintf("[INFO] %s", message))
+	}
+	return nil
+}
+
+func (logger *Logger) Debug(message string) error {
+	if logger.logLevel >= DEBUG {
+		return logger.Log(fmt.Sprintf("[DEBUG] %s", message))
+	}
+	return nil
 }
