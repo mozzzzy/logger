@@ -24,7 +24,7 @@ import (
  */
 
 func main() {
-	logger, err := logger.New("./", "test.log", logger.DEBUG, 1024*1024, 5)
+	logger, err := logger.New("./test.log", "DEBUG", 1024*1024, 5)
 	if err != nil {
 		fmt.Println(err)
 		return
