@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -33,12 +34,20 @@ type Logger struct {
  * Constants and Package Scope Variables
  */
 
+const UNKNOWN int = -1
 const FATAL int = 0
 const ERROR int = 1
 const WARN int = 2
 const NOTICE int = 3
 const INFO int = 4
 const DEBUG int = 5
+
+var fatalStrs []string = []string{"fatal", "FATAL"}
+var errorStrs []string = []string{"error", "ERROR"}
+var warnStrs []string = []string{"warn", "WARN"}
+var noticeStrs []string = []string{"notice", "NOTICE"}
+var infoStrs []string = []string{"info", "INFO"}
+var debugStrs []string = []string{"debug", "DEBUG"}
 
 var logFileMutex sync.Mutex
 
@@ -67,21 +76,52 @@ func getFileWriter(logFilePath string) (*os.File, error) {
 	return logfile, logFileOpenErr
 }
 
+func getLogLevel(levelStr string) int {
+	switch levelStr {
+	case "DEBUG":
+		fallthrough
+	case "debug":
+		return DEBUG
+	case "INFO":
+		fallthrough
+	case "info":
+		return INFO
+	case "NOTICE":
+		fallthrough
+	case "notice":
+		return NOTICE
+	case "WARN":
+		fallthrough
+	case "warn":
+		return WARN
+	case "ERROR":
+		fallthrough
+	case "error":
+		return ERROR
+	default:
+		return UNKNOWN
+	}
+}
+
 func New(
-	logDirPath string,
-	logFileName string,
-	logLevel int,
+	logFilePath string,
+	logLevel string,
 	maxLogFileBytes int64,
 	maxOldLogFileNum int,
 ) (*Logger, error) {
 	logger := new(Logger)
 
 	// Set file path
+	logDirPath := filepath.Dir(logFilePath)
+	logFileName := filepath.Base(logFilePath)
 	logger.logFileNameStr = logFileName
 	logger.logDirPathStr = logDirPath
 
 	// Set log level
-	logger.logLevel = logLevel
+	logger.logLevel = getLogLevel(logLevel)
+	if logger.logLevel == UNKNOWN {
+		return nil, errors.New(fmt.Sprintf("Unknown log level \"%v\".", logLevel))
+	}
 
 	// Set mutex
 	logger.logFileMutex = &logFileMutex
@@ -95,7 +135,7 @@ func New(
 	logger.fileWriter = fileWriter
 
 	// Create logger
-	innerLogger := log.New(fileWriter, "", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
+	innerLogger := log.New(fileWriter, "", log.LstdFlags|log.Lmicroseconds)
 	logger.logger = innerLogger
 
 	// Create rotator
@@ -136,7 +176,7 @@ func (logger *Logger) Log(message string) error {
 		}
 		logger.fileWriter = fileWriter
 		// Recreate logger
-		innerLogger := log.New(fileWriter, "", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
+		innerLogger := log.New(fileWriter, "", log.LstdFlags|log.Lmicroseconds)
 		logger.logger = innerLogger
 	}
 	return nil
