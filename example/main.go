@@ -49,25 +49,47 @@ func main() {
 		return
 	}
 
-	diagLogger, newDiagErr := logger.New("diagnostic")
-	if newDiagErr != nil {
-		fmt.Println(newDiagErr)
+	diagLogger1, newDiag1Err := logger.New("diagnostic")
+	if newDiag1Err != nil {
+		fmt.Println(newDiag1Err)
 		return
 	}
+
+	diagLogger2, newDiag2Err := logger.New("diagnostic")
+	if newDiag2Err != nil {
+		fmt.Println(newDiag2Err)
+		return
+	}
+
 	defer accessLogger.Close()
-	defer diagLogger.Close()
+	defer diagLogger1.Close()
+	defer diagLogger2.Close()
 
 	for i := 0; i < 100; i++ {
 		time.Sleep(500 * time.Millisecond)
 
 		accessLogger.Log("new access.")
 
-		diagLogger.Log("test message")
-		diagLogger.Fatal("test message")
-		diagLogger.Error("test message")
-		diagLogger.Warn("test message")
-		diagLogger.Notice("test message")
-		diagLogger.Info("test message")
-		diagLogger.Debug("test message")
+		diagLogger1.Log("test message")
+		diagLogger1.Fatal("test message")
+		diagLogger1.Error("test message")
+		diagLogger1.Warn("test message")
+		diagLogger1.Notice("test message")
+		diagLogger1.Info("test message")
+		diagLogger1.Debug("test message")
+	}
+
+	for i := 0; i < 100; i++ {
+		time.Sleep(500 * time.Millisecond)
+
+		accessLogger.Log("new access.")
+
+		diagLogger2.Log("test message")
+		diagLogger2.Fatal("test message")
+		diagLogger2.Error("test message")
+		diagLogger2.Warn("test message")
+		diagLogger2.Notice("test message")
+		diagLogger2.Info("test message")
+		diagLogger2.Debug("test message")
 	}
 }
