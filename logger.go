@@ -151,6 +151,28 @@ func AddCategory(
 	return nil
 }
 
+func GetLogLevelByStr(levelStr string) (int, error) {
+	if contain(levelStr, []string{"DEBUG"}) {
+		return DEBUG, nil
+	}
+	if contain(levelStr, []string{"INFO"}) {
+		return INFO, nil
+	}
+	if contain(levelStr, []string{"NOTICE"}) {
+		return NOTICE, nil
+	}
+	if contain(levelStr, []string{"WARN"}) {
+		return WARN, nil
+	}
+	if contain(levelStr, []string{"ERROR"}) {
+		return ERROR, nil
+	}
+	if contain(levelStr, []string{"FATAL"}) {
+		return FATAL, nil
+	}
+	return -1, errors.New(fmt.Sprintf("Unknown log level \"%v\".", levelStr))
+}
+
 func New(categoryName string) (*Logger, error) {
 	// Get category from category name
 	category := getCategory(categoryName)
